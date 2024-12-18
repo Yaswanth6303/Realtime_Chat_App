@@ -8,6 +8,8 @@ interface Room {
   name: string;
   sockets: Map<WebSocket, string>;
   chatHistory: Message[];
+  lastActivityTimestamp: number;
+  emptyRoomTimer?: NodeJS.Timeout;
 }
 
 interface Message {
@@ -17,6 +19,11 @@ interface Message {
   message?: string;
   count?: number;
 }
+
+// Configuration for room cleanup
+const ROOM_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const ROOM_INACTIVE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+const EMPTY_ROOM_TIMEOUT = 10 * 60 * 1000; // 10 minutes before removing an empty room
 
 let userCount = 0;
 const rooms: Map<string, Room> = new Map();
@@ -68,6 +75,42 @@ const broadcastUserCount = (room: Room) => {
   });
 };
 
+// Function to start an empty room removal timer
+const startEmptyRoomTimer = (roomCode: string) => {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
+  // Clear any existing timer to prevent multiple timers
+  if (room.emptyRoomTimer) {
+    clearTimeout(room.emptyRoomTimer);
+  }
+
+  // Set a timer to remove the room if it remains empty
+  room.emptyRoomTimer = setTimeout(() => {
+    if (room.sockets.size === 0) {
+      console.log(`Removing empty room after timeout: ${roomCode}`);
+      rooms.delete(roomCode);
+    }
+  }, EMPTY_ROOM_TIMEOUT);
+};
+
+// Function to clean up inactive rooms
+const cleanupInactiveRooms = () => {
+  const now = Date.now();
+  
+  rooms.forEach((room, roomCode) => {
+    // Remove room if no sockets and inactive for too long
+    if (room.sockets.size === 0 && 
+        now - room.lastActivityTimestamp > ROOM_INACTIVE_TIMEOUT) {
+      console.log(`Removing inactive room: ${roomCode}`);
+      rooms.delete(roomCode);
+    }
+  });
+};
+
+// Set up periodic room cleanup
+const roomCleanupInterval = setInterval(cleanupInactiveRooms, ROOM_CLEANUP_INTERVAL);
+
 wss.on("connection", (socket) => {
   userCount++;
   console.log(`User connected. Total users: ${userCount}`);
@@ -98,6 +141,7 @@ wss.on("connection", (socket) => {
             name: roomName,
             sockets: new Map(),
             chatHistory: [],
+            lastActivityTimestamp: Date.now(),
           };
 
           newRoom.sockets.set(socket, name);
@@ -130,6 +174,12 @@ wss.on("connection", (socket) => {
           const roomToJoin = rooms.get(roomCode);
 
           if (roomToJoin) {
+            // If there's an empty room timer, clear it as the room is no longer empty
+            if (roomToJoin.emptyRoomTimer) {
+              clearTimeout(roomToJoin.emptyRoomTimer);
+              roomToJoin.emptyRoomTimer = undefined;
+            }
+
             if (roomToJoin.sockets.has(socket)) {
               socket.send(
                 JSON.stringify({
@@ -141,6 +191,7 @@ wss.on("connection", (socket) => {
             }
 
             roomToJoin.sockets.set(socket, name);
+            roomToJoin.lastActivityTimestamp = Date.now(); // Update last activity
             userRoom = roomCode;
             userName = name;
 
@@ -199,6 +250,9 @@ wss.on("connection", (socket) => {
           const room = rooms.get(userRoom)!;
           const senderName = room.sockets.get(socket) || "Unknown";
 
+          // Update last activity timestamp
+          room.lastActivityTimestamp = Date.now();
+
           const messageObj: Message = {
             type: 'message',
             sender: senderName,
@@ -240,6 +294,9 @@ wss.on("connection", (socket) => {
       const disconnectedUserName = room.sockets.get(socket) || "A user";
 
       room.sockets.delete(socket);
+      
+      // Update last activity timestamp when a user disconnects
+      room.lastActivityTimestamp = Date.now();
 
       if (room.sockets.size > 0) {
         room.sockets.forEach((_, clientSocket) => {
@@ -254,10 +311,21 @@ wss.on("connection", (socket) => {
         });
 
         broadcastUserCount(room);
+      } else {
+        // Room is now empty, start a timer to potentially remove it
+        console.log(`Room '${userRoom}' is now empty. Starting removal timer.`);
+        startEmptyRoomTimer(userRoom);
       }
     }
 
     userCount--;
     console.log(`User disconnected. Remaining users: ${userCount}`);
   });
+});
+
+// Cleanup interval to prevent memory leaks
+process.on('SIGINT', () => {
+  clearInterval(roomCleanupInterval);
+  wss.close();
+  process.exit();
 });
