@@ -1,0 +1,40 @@
+Improvements
+Server Enhancements
+
+    Room Cleanup:
+        If a room becomes empty (all users leave), consider removing it from the rooms map to free up memory.
+        Implement a timeout for inactive rooms to handle cases where users disconnect without cleanup.
+
+    Rate Limiting:
+        Introduce rate limiting for messages to prevent spamming or abuse.
+
+    Error Handling:
+        Provide more granular error messages for debugging.
+        Handle edge cases like invalid JSON payloads gracefully.
+
+    Persistent Storage:
+        Consider persisting room data (chat history, users) to a database for larger applications.
+
+Client Enhancements
+
+    UI Improvements:
+        Add a loading indicator when connecting to the server.
+        Highlight the user's own messages differently for better visibility.
+
+    User Avatars or Colors:
+        Assign avatars or unique colors to users for better differentiation in chat.
+
+    Responsive Design:
+        Ensure the chat UI scales well on mobile devices.
+
+    Reconnection Logic:
+        Implement logic to reconnect to the server if the connection drops unexpectedly.
+
+    Sound Notifications:
+        Play a sound when a new message or notification arrives to enhance the user experience.
+
+    Message Delivery Status:
+        Provide feedback on whether a message has been delivered to the server (e.g., "sending", "delivered").
+
+    Exit Room Functionality:
+        Allow users to leave a room and either join another room or go back to a "lobby" state.
